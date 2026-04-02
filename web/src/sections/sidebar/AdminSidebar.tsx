@@ -1,10 +1,18 @@
 "use client";
 
-import { useCallback } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { usePathname } from "next/navigation";
 import { useSettingsContext } from "@/providers/SettingsProvider";
 import SidebarSection from "@/sections/sidebar/SidebarSection";
-import SidebarWrapper from "@/sections/sidebar/SidebarWrapper";
+import * as SidebarLayouts from "@/layouts/sidebar-layouts";
+import { useSidebarFolded } from "@/layouts/sidebar-layouts";
 import { useIsKGExposed } from "@/app/admin/kg/utils";
 import { useCustomAnalyticsEnabled } from "@/lib/hooks/useCustomAnalyticsEnabled";
 import { useUser } from "@/providers/UserProvider";
@@ -12,10 +20,9 @@ import { UserRole } from "@/lib/types";
 import { usePaidEnterpriseFeaturesEnabled } from "@/components/settings/usePaidEnterpriseFeaturesEnabled";
 import { CombinedSettings } from "@/interfaces/settings";
 import { SidebarTab } from "@opal/components";
-import SidebarBody from "@/sections/sidebar/SidebarBody";
 import InputTypeIn from "@/refresh-components/inputs/InputTypeIn";
 import { Disabled } from "@opal/core";
-import { SvgArrowUpCircle, SvgUserManage, SvgX } from "@opal/icons";
+import { SvgArrowUpCircle, SvgSearch, SvgUserManage, SvgX } from "@opal/icons";
 import {
   useBillingInformation,
   useLicense,
@@ -184,9 +191,29 @@ function groupBySection(items: SidebarItemEntry[]) {
 
 interface AdminSidebarProps {
   enableCloudSS: boolean;
+  folded: boolean;
+  onFoldChange: Dispatch<SetStateAction<boolean>>;
 }
 
-export default function AdminSidebar({ enableCloudSS }: AdminSidebarProps) {
+interface AdminSidebarInnerProps {
+  enableCloudSS: boolean;
+  onFoldChange: Dispatch<SetStateAction<boolean>>;
+}
+
+function AdminSidebarInner({
+  enableCloudSS,
+  onFoldChange,
+}: AdminSidebarInnerProps) {
+  const folded = useSidebarFolded();
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [focusSearch, setFocusSearch] = useState(false);
+
+  useEffect(() => {
+    if (focusSearch && !folded && searchRef.current) {
+      searchRef.current.focus();
+      setFocusSearch(false);
+    }
+  }, [focusSearch, folded]);
   const { kgExposed } = useIsKGExposed();
   const pathname = usePathname();
   const { customAnalyticsEnabled } = useCustomAnalyticsEnabled();
@@ -227,28 +254,78 @@ export default function AdminSidebar({ enableCloudSS }: AdminSidebarProps) {
   const groups = groupBySection(filtered);
 
   return (
-    <SidebarWrapper>
-      <SidebarBody
-        scrollKey="admin-sidebar"
-        pinnedContent={
-          <div className="flex flex-col w-full">
+    <>
+      <SidebarLayouts.Header>
+        <div className="flex flex-col w-full">
+          <SidebarTab
+            icon={({ className }) => <SvgX className={className} size={16} />}
+            href="/app"
+            variant="sidebar-light"
+            folded={folded}
+          >
+            Exit Admin Panel
+          </SidebarTab>
+          {folded ? (
             <SidebarTab
-              icon={({ className }) => <SvgX className={className} size={16} />}
-              href="/app"
-              variant="sidebar-light"
+              icon={SvgSearch}
+              folded
+              onClick={() => {
+                onFoldChange(false);
+                setFocusSearch(true);
+              }}
             >
-              Exit Admin Panel
+              Search
             </SidebarTab>
+          ) : (
             <InputTypeIn
+              ref={searchRef}
               variant="internal"
               leftSearchIcon
               placeholder="Search..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-          </div>
-        }
-        footer={
+          )}
+        </div>
+      </SidebarLayouts.Header>
+
+      <SidebarLayouts.Body scrollKey="admin-sidebar">
+        {groups.map((group, groupIndex) => {
+          const tabs = group.items.map(({ link, icon, name, disabled }) => (
+            <Disabled key={link} disabled={disabled}>
+              {/*
+                # NOTE (@raunakab)
+                We intentionally add a `div` intermediary here.
+                Without it, the disabled styling that is default provided by the `Disabled` component (which we want here) would be overridden by the custom disabled styling provided by the `SidebarTab`.
+                Therefore, in order to avoid that overriding, we add a layer of indirection.
+              */}
+              <div>
+                <SidebarTab
+                  disabled={disabled}
+                  icon={icon}
+                  href={disabled ? undefined : link}
+                  selected={pathname.startsWith(link)}
+                >
+                  {name}
+                </SidebarTab>
+              </div>
+            </Disabled>
+          ));
+
+          if (!group.section) {
+            return <div key={groupIndex}>{tabs}</div>;
+          }
+
+          return (
+            <SidebarSection key={groupIndex} title={group.section}>
+              {tabs}
+            </SidebarSection>
+          );
+        })}
+      </SidebarLayouts.Body>
+
+      <SidebarLayouts.Footer>
+        {!folded && (
           <Section gap={0} height="fit" alignItems="start">
             <div className="p-[0.38rem] w-full">
               <Content
@@ -284,41 +361,23 @@ export default function AdminSidebar({ enableCloudSS }: AdminSidebarProps) {
               )}
             </div>
           </Section>
-        }
-      >
-        {groups.map((group, groupIndex) => {
-          const tabs = group.items.map(({ link, icon, name, disabled }) => (
-            <Disabled key={link} disabled={disabled}>
-              {/*
-                # NOTE (@raunakab)
-                We intentionally add a `div` intermediary here.
-                Without it, the disabled styling that is default provided by the `Disabled` component (which we want here) would be overridden by the custom disabled styling provided by the `SidebarTab`.
-                Therefore, in order to avoid that overriding, we add a layer of indirection.
-              */}
-              <div>
-                <SidebarTab
-                  disabled={disabled}
-                  icon={icon}
-                  href={disabled ? undefined : link}
-                  selected={pathname.startsWith(link)}
-                >
-                  {name}
-                </SidebarTab>
-              </div>
-            </Disabled>
-          ));
+        )}
+      </SidebarLayouts.Footer>
+    </>
+  );
+}
 
-          if (!group.section) {
-            return <div key={groupIndex}>{tabs}</div>;
-          }
-
-          return (
-            <SidebarSection key={groupIndex} title={group.section}>
-              {tabs}
-            </SidebarSection>
-          );
-        })}
-      </SidebarBody>
-    </SidebarWrapper>
+export default function AdminSidebar({
+  enableCloudSS,
+  folded,
+  onFoldChange,
+}: AdminSidebarProps) {
+  return (
+    <SidebarLayouts.Root folded={folded} onFoldChange={onFoldChange}>
+      <AdminSidebarInner
+        enableCloudSS={enableCloudSS}
+        onFoldChange={onFoldChange}
+      />
+    </SidebarLayouts.Root>
   );
 }
